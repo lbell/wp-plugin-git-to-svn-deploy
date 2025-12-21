@@ -5,7 +5,7 @@ IFS=$'\n\t'
 trap 'echo "ERROR on line $LINENO"; exit 1' ERR
 
 # ============================================================================
-# WordPress Plugin Release Deployer
+# WordPress Plugin Release Deployer (Git to SVN)
 # ============================================================================
 # This script automates the process of releasing a WordPress plugin to the
 # official WordPress plugin repository (wordpress.org/plugins).
@@ -35,9 +35,9 @@ TMPROOT="$(mktemp -d)"
 
 # Collect user input
 echo ""
-echo "================================"
-echo "WordPress Plugin Release Deploy"
-echo "================================"
+echo "=============================================="
+echo "WordPress Plugin Release Deployer (Git to SVN)"
+echo "=============================================="
 echo ""
 read -rp "Plugin Slug (e.g., 'my-awesome-plugin'): " PLUGINSLUG
 read -rp "SVN Username (your wordpress.org username): " SVNUSER
