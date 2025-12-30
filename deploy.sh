@@ -139,6 +139,29 @@ svn checkout "$SVNURL" "$SVNPATH"
 # Using git archive ensures we get exactly what was tagged
 git archive "$TAG" | tar -x -C "$SVNPATH/trunk"
 
+# Remove .gitignore from SVN trunk (should not be deployed)
+rm -f "$SVNPATH/trunk/.gitignore"
+
+# Remove files listed in .gitignore from SVN trunk
+# (in case any were committed to git but should not go to SVN)
+if [[ -f "$GITROOT/.gitignore" ]]; then
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
+    # Skip empty lines and comments
+    [[ -z "$pattern" || "$pattern" =~ ^# ]] && continue
+    # Remove leading/trailing whitespace
+    pattern="${pattern#"${pattern%%[![:space:]]*}"}"
+    pattern="${pattern%"${pattern##*[![:space:]]}"}"
+    [[ -z "$pattern" ]] && continue
+    # Find and remove matching files/directories in trunk
+    # Use find with -name for simple patterns, handle negation patterns
+    [[ "$pattern" =~ ^! ]] && continue  # Skip negation patterns
+    # Remove leading slash if present (gitignore root patterns)
+    pattern="${pattern#/}"
+    # Find matching files and remove them
+    find "$SVNPATH/trunk" -name "$pattern" -exec rm -rf {} + 2>/dev/null || true
+  done < "$GITROOT/.gitignore"
+fi
+
 # Configure SVN to ignore development files that shouldn't be in the repo
 svn propset svn:ignore \
 ".git
