@@ -5,24 +5,9 @@ IFS=$'\n\t'
 # ============================================================================
 # WordPress Plugin Release Deployer (Git to SVN)
 # ============================================================================
+# Version: 0.2.0
 # This script automates the process of releasing a WordPress plugin to the
 # official WordPress plugin repository (wordpress.org/plugins).
-#
-# REQUIREMENTS:
-#   - Git repository with commits you want to release
-#   - SVN client installed (svn command)
-#   - WordPress.org plugin repository access (SVN credentials)
-#   - readme.txt with "Stable tag:" version
-#   - Main plugin file (.php) with "Version:" header
-#
-# WORKFLOW:
-#   1. Validates your git state and version consistency
-#   2. Creates a git tag and pushes to origin
-#   3. Checks out the WordPress SVN repository
-#   4. Syncs code, handles asset files, and updates version
-#   5. Commits changes to SVN repository
-#   6. Tags the release in SVN
-#
 # ============================================================================
 
 # Resolve to actual path if script is run via symlink

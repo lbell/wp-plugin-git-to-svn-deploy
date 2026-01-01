@@ -1,5 +1,7 @@
 # WordPress Plugin Git to SVN Deployer
 
+Version: 0.2.0
+
 A robust bash script that automates deploying WordPress plugin releases from a Git repository to the official WordPress.org plugin SVN repository.
 
 ## Features
@@ -25,17 +27,18 @@ A robust bash script that automates deploying WordPress plugin releases from a G
 ```
 
 The script will prompt you for:
+
 - Plugin slug
 - WordPress.org username
 - Release commit message
 
 ## Workflow
 
-1. Validates Git state and version consistency
-2. Creates a Git tag and pushes to origin
+1. Validates your git state and version consistency
+2. Creates a git tag and pushes to origin
 3. Checks out the WordPress SVN repository
 4. Syncs code and handles asset files
-5. Commits changes to SVN trunk
+5. Commits changes to SVN repository
 6. Tags the release in SVN
 
 ## Configuration
