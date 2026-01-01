@@ -90,11 +90,11 @@ MAINFILE="$GITROOT/$PLUGINSLUG.php"
 
 cd "$GITROOT"
 
-# Debug: Show resolved paths
-echo "Git root: $GITROOT"
-echo "Looking for: $READMETXT"
-echo "Looking for: $MAINFILE"
-echo ""
+# # Debug: Show resolved paths
+# echo "Git root: $GITROOT"
+# echo "Looking for: $READMETXT"
+# echo "Looking for: $MAINFILE"
+# echo ""
 
 # Ensure required files exist
 [[ -f "$READMETXT" ]] || { echo "readme.txt not found at: $READMETXT"; exit 1; }
@@ -172,8 +172,7 @@ read -rp "Release commit message: " COMMITMSG
 # Tag the release in git and push to remote origin
 
 git tag -a "$GITTAG" -m "$COMMITMSG"
-git push origin "$CURRENT_BRANCH"
-git push origin "$GITTAG"
+git push origin "$CURRENT_BRANCH" "$GITTAG"
 
 ### SVN OPERATIONS ###
 # Check out the WordPress plugin SVN repository
@@ -200,6 +199,9 @@ if [[ -d "$SVNPATH/trunk" ]]; then
   # Remove empty directories (except .svn)
   find "$SVNPATH/trunk" -type d -empty ! -name ".svn" ! -path "*/.svn/*" -delete 2>/dev/null || true
 fi
+
+# Ensure trunk directory exists (may not exist for new plugins or after cleanup)
+mkdir -p "$SVNPATH/trunk"
 
 # Export code from the immutable git tag to SVN trunk
 # Using git archive ensures we get exactly what was tagged
