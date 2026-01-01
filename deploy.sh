@@ -2,8 +2,6 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-trap 'echo "ERROR on line $LINENO"; exit 1' ERR
-
 # ============================================================================
 # WordPress Plugin Release Deployer (Git to SVN)
 # ============================================================================
@@ -27,10 +25,45 @@ trap 'echo "ERROR on line $LINENO"; exit 1' ERR
 #
 # ============================================================================
 
+# Resolve to actual path if script is run via symlink
+# Works on both Linux (readlink -f) and macOS (need to resolve manually)
+resolve_symlink() {
+  local target="$1"
+  cd "$(dirname "$target")"
+  target="$(basename "$target")"
+  while [[ -L "$target" ]]; do
+    target="$(readlink "$target")"
+    cd "$(dirname "$target")"
+    target="$(basename "$target")"
+  done
+  echo "$(pwd -P)/$target"
+}
+
+SCRIPT_PATH="$(resolve_symlink "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
 ### CONFIG ###
 ALLOWED_BRANCHES=("main" "master")
 TMPROOT="$(mktemp -d)"
+
+# Cleanup temp directory on exit (success or failure)
+cleanup() {
+  local exit_code=$?
+  if [[ -d "$TMPROOT" ]]; then
+    rm -rf "$TMPROOT"
+  fi
+  if [[ $exit_code -ne 0 ]]; then
+    echo "Script failed with exit code $exit_code"
+  fi
+  exit $exit_code
+}
+trap cleanup EXIT
+
+# Error handler - prints line number on error
+error_handler() {
+  echo "ERROR on line $1"
+}
+trap 'error_handler $LINENO' ERR
 ### END CONFIG ###
 
 # Collect user input
@@ -43,6 +76,8 @@ read -rp "Plugin Slug (e.g., 'my-awesome-plugin'): " PLUGINSLUG
 read -rp "SVN Username (your wordpress.org username): " SVNUSER
 echo ""
 
+# Find git root from current working directory (where user called script from)
+# This works whether script is called directly or via symlink
 GITROOT="$(git rev-parse --show-toplevel)"
 SVNPATH="$TMPROOT/$PLUGINSLUG"
 SVNURL="https://plugins.svn.wordpress.org/$PLUGINSLUG"
@@ -55,9 +90,15 @@ MAINFILE="$GITROOT/$PLUGINSLUG.php"
 
 cd "$GITROOT"
 
+# Debug: Show resolved paths
+echo "Git root: $GITROOT"
+echo "Looking for: $READMETXT"
+echo "Looking for: $MAINFILE"
+echo ""
+
 # Ensure required files exist
-[[ -f "$READMETXT" ]] || { echo "readme.txt not found"; exit 1; }
-[[ -f "$MAINFILE" ]] || { echo "Main plugin file not found"; exit 1; }
+[[ -f "$READMETXT" ]] || { echo "readme.txt not found at: $READMETXT"; exit 1; }
+[[ -f "$MAINFILE" ]] || { echo "Main plugin file not found at: $MAINFILE"; exit 1; }
 
 # Verify working directory is clean (no uncommitted changes)
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -78,24 +119,26 @@ fi
 
 # Extract versions from readme.txt and main plugin file
 # These must match exactly or the deploy will fail
+# Use || true to prevent grep from triggering ERR trap when no match found
 READMESTABLE=$(
-  awk -F': *' '/^Stable tag:/ {
-    gsub(/[[:space:]]+$/, "", $2);
-    print $2
-  }' "$READMETXT"
+  grep -i "Stable tag:" "$READMETXT" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' | sed 's/[[:space:]]*$//' || true
 )
 
 PLUGINVERSION=$(
-  awk -F': *' '/^Version:/ {
-    gsub(/[[:space:]]+$/, "", $2);
-    print $2;
-    exit
-  }' "$MAINFILE"
+  grep -i "^[[:space:]]*\*[[:space:]]*Version:" "$MAINFILE" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' | sed 's/[[:space:]]*$//' || true
 )
 
 # Verify versions were found
 if [[ -z "$READMESTABLE" || -z "$PLUGINVERSION" ]]; then
   echo "Failed to extract version information."
+  echo "  readme.txt stable tag: '$READMESTABLE'"
+  echo "  plugin file version: '$PLUGINVERSION'"
+  echo ""
+  echo "First 20 lines of readme.txt:"
+  head -20 "$READMETXT"
+  echo ""
+  echo "First 30 lines of plugin file:"
+  head -30 "$MAINFILE"
   exit 1
 fi
 
@@ -113,11 +156,13 @@ if [[ "$READMESTABLE" != "$PLUGINVERSION" ]]; then
   exit 1
 fi
 
-TAG="v$READMESTABLE"
+# Git tag uses "v" prefix (convention for git), SVN tag does NOT (WordPress convention)
+GITTAG="v$READMESTABLE"
+SVNTAG="$READMESTABLE"
 
 # Prevent duplicate releases - ensure git tag doesn't already exist
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-  echo "Git tag $TAG already exists."
+if git rev-parse "$GITTAG" >/dev/null 2>&1; then
+  echo "Git tag $GITTAG already exists."
   exit 1
 fi
 
@@ -126,18 +171,34 @@ read -rp "Release commit message: " COMMITMSG
 ### GIT OPERATIONS ###
 # Tag the release in git and push to remote origin
 
-git tag -a "$TAG" -m "$COMMITMSG"
+git tag -a "$GITTAG" -m "$COMMITMSG"
 git push origin "$CURRENT_BRANCH"
-git push origin "$TAG"
+git push origin "$GITTAG"
 
 ### SVN OPERATIONS ###
 # Check out the WordPress plugin SVN repository
 
 svn checkout "$SVNURL" "$SVNPATH"
 
+# Check if SVN tag already exists (prevent duplicate SVN releases)
+if svn ls "$SVNURL/tags/$SVNTAG" >/dev/null 2>&1; then
+  echo "SVN tag $SVNTAG already exists at $SVNURL/tags/$SVNTAG"
+  echo "Aborting to prevent overwriting existing release."
+  exit 1
+fi
+
+# First, remove ALL existing files from SVN trunk to ensure deleted files are handled
+# This guarantees files removed from git are also removed from SVN
+# We preserve the directory structure by only removing files, not the trunk itself
+if [[ -d "$SVNPATH/trunk" ]]; then
+  # Find all files (not directories) in trunk and schedule for deletion
+  find "$SVNPATH/trunk" -type f ! -path "*/.svn/*" -exec svn delete --force {} \; 2>/dev/null || true
+fi
+
 # Export code from the immutable git tag to SVN trunk
 # Using git archive ensures we get exactly what was tagged
-git archive "$TAG" | tar -x -C "$SVNPATH/trunk"
+# Run from git root to ensure relative paths are correct
+(cd "$GITROOT" && git archive "$GITTAG" | tar -x -C "$SVNPATH/trunk")
 
 # Remove .gitignore from SVN trunk (should not be deployed)
 rm -f "$SVNPATH/trunk/.gitignore"
@@ -170,62 +231,104 @@ deploy.sh
 README.md" \
 "$SVNPATH/trunk"
 
-# Remove files that were deleted in git but still exist in SVN
-svn status "$SVNPATH/trunk" | sed -n 's/^! *//p' | while IFS= read -r f; do
-  svn delete "$f"
+# Handle SVN file state changes:
+# 1. Files marked as missing (!) - need to confirm deletion
+# 2. Files marked as unversioned (?) - need to add
+# 3. Files marked as deleted but restored - need to revert and re-add
+
+# SVN status format: 7 status columns + space + filename (column 9 onwards)
+# Using cut -c9- to extract filename properly handles spaces in filenames
+
+# First, get list of missing files (deleted from disk but SVN still tracks)
+# and confirm the deletion with svn delete
+svn status "$SVNPATH/trunk" 2>/dev/null | grep '^!' | cut -c9- | while IFS= read -r missing_file; do
+  [[ -n "$missing_file" ]] && svn delete --force "$missing_file" 2>/dev/null || true
 done
 
-# Add new files that are in git but not yet in SVN
-svn status "$SVNPATH/trunk" | sed -n 's/^? *//p' | while IFS= read -r f; do
-  svn add "$f"
+# Add new/untracked files to SVN
+svn status "$SVNPATH/trunk" 2>/dev/null | grep '^?' | cut -c9- | while IFS= read -r new_file; do
+  [[ -n "$new_file" ]] && svn add "$new_file" 2>/dev/null || true
 done
+
+# Handle replaced files (file was deleted then re-added with new content)
+# These show as 'R' in svn status and are handled automatically
 
 # Handle WordPress.org assets (banner, icon, screenshots)
 # These go in a separate 'assets' directory, not in trunk
 if [[ -d "$SVNPATH/trunk/assets-wp-repo" ]]; then
   # Sanity check: ensure at least a banner image exists
   if ! ls "$SVNPATH/trunk/assets-wp-repo"/banner-* >/dev/null 2>&1; then
-    echo "No banner asset found. Aborting to prevent asset wipe."
-    exit 1
+    echo "Warning: No banner asset found in assets-wp-repo/"
+    read -rp "Continue without banner? [y/N] " CONFIRM_BANNER
+    [[ "$CONFIRM_BANNER" == "y" ]] || exit 1
   fi
 
-  # Copy assets from git directory to SVN assets directory
-  mkdir -p "$SVNPATH/assets"
+  # Create assets directory if it doesn't exist in SVN
+  if [[ ! -d "$SVNPATH/assets" ]]; then
+    mkdir -p "$SVNPATH/assets"
+    svn add "$SVNPATH/assets"
+  fi
+
+  # Sync assets: copy new/updated files, remove deleted ones
   rsync -a --delete "$SVNPATH/trunk/assets-wp-repo/" "$SVNPATH/assets/"
-  svn add "$SVNPATH/assets" --force
-  svn delete "$SVNPATH/trunk/assets-wp-repo"
+
+  # Handle SVN state for assets directory
+  # Add new files
+  svn status "$SVNPATH/assets" 2>/dev/null | grep '^?' | cut -c9- | while IFS= read -r new_file; do
+    [[ -n "$new_file" ]] && svn add "$new_file" 2>/dev/null || true
+  done
+
+  # Remove deleted files
+  svn status "$SVNPATH/assets" 2>/dev/null | grep '^!' | cut -c9- | while IFS= read -r missing_file; do
+    [[ -n "$missing_file" ]] && svn delete --force "$missing_file" 2>/dev/null || true
+  done
+
+  # Remove assets-wp-repo from trunk (it should not be deployed to WordPress.org trunk)
+  svn delete --force "$SVNPATH/trunk/assets-wp-repo"
 fi
 
 # Display pending changes for review
 echo
+echo "=============================================="
+echo "SVN Status (all pending changes):"
+echo "=============================================="
+svn status "$SVNPATH"
+echo
+echo "=============================================="
 echo "SVN diff for trunk:"
+echo "=============================================="
 svn diff "$SVNPATH/trunk"
+echo
+echo "=============================================="
+echo "Release Summary:"
+echo "  Version: $SVNTAG"
+echo "  Git tag: $GITTAG"
+echo "  SVN tag: $SVNURL/tags/$SVNTAG"
+echo "=============================================="
 echo
 read -rp "Proceed with SVN commit? [y/N] " CONFIRM
 [[ "$CONFIRM" == "y" ]] || exit 1
 
-# Commit the trunk (main plugin code)
-svn commit "$SVNPATH/trunk" \
+# Commit everything in the working copy (trunk + assets) in one atomic commit
+# This ensures consistency between trunk and assets
+svn commit "$SVNPATH" \
   --username "$SVNUSER" \
   -m "$COMMITMSG"
 
-# Commit assets separately (if any exist)
-if [[ -d "$SVNPATH/assets" ]]; then
-  svn commit "$SVNPATH/assets" \
-    --username "$SVNUSER" \
-    -m "Update plugin assets"
-fi
-
-# Create a SVN tag (immutable snapshot) pointing to the released version
-# This is a full repository copy, which in SVN acts as a tag
+# Create a SVN tag (copy) pointing to the released version
+# WordPress convention: tags are version numbers without "v" prefix (e.g., "1.0.0")
+# This creates an immutable snapshot of trunk at this version
 svn copy \
   "$SVNURL/trunk" \
-  "$SVNURL/tags/$READMESTABLE" \
-  -m "Tag $READMESTABLE" \
+  "$SVNURL/tags/$SVNTAG" \
+  -m "Tagging version $SVNTAG" \
   --username "$SVNUSER"
 
-# Clean up temporary files
-rm -rf "$TMPROOT"
-
-echo "Deployment complete."
+echo
+echo "=============================================="
+echo "Deployment complete!"
+echo "  Plugin: $PLUGINSLUG"
+echo "  Version: $SVNTAG"
+echo "  SVN: $SVNURL/tags/$SVNTAG"
+echo "=============================================="
 
