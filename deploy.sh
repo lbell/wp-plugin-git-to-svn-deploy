@@ -187,12 +187,18 @@ if svn ls "$SVNURL/tags/$SVNTAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-# First, remove ALL existing files from SVN trunk to ensure deleted files are handled
-# This guarantees files removed from git are also removed from SVN
-# We preserve the directory structure by only removing files, not the trunk itself
+# Sync strategy: Remove all files from disk (not SVN), extract git archive,
+# then let SVN detect changes. This properly handles:
+# - New files (? status) -> svn add
+# - Deleted files (! status) -> svn delete  
+# - Modified files (M status) -> automatic
+# - Unchanged files -> no action needed
+
 if [[ -d "$SVNPATH/trunk" ]]; then
-  # Find all files (not directories) in trunk and schedule for deletion
-  find "$SVNPATH/trunk" -type f ! -path "*/.svn/*" -exec svn delete --force {} \; 2>/dev/null || true
+  # Remove all files from disk but preserve .svn metadata and directory structure
+  find "$SVNPATH/trunk" -type f ! -path "*/.svn/*" -delete
+  # Remove empty directories (except .svn)
+  find "$SVNPATH/trunk" -type d -empty ! -name ".svn" ! -path "*/.svn/*" -delete 2>/dev/null || true
 fi
 
 # Export code from the immutable git tag to SVN trunk
@@ -241,12 +247,13 @@ README.md" \
 
 # First, get list of missing files (deleted from disk but SVN still tracks)
 # and confirm the deletion with svn delete
-svn status "$SVNPATH/trunk" 2>/dev/null | grep '^!' | cut -c9- | while IFS= read -r missing_file; do
+# Note: grep returns exit 1 if no matches, so we use { grep ... || true; } to prevent ERR trap
+svn status "$SVNPATH/trunk" 2>/dev/null | { grep '^!' || true; } | cut -c9- | while IFS= read -r missing_file; do
   [[ -n "$missing_file" ]] && svn delete --force "$missing_file" 2>/dev/null || true
 done
 
 # Add new/untracked files to SVN
-svn status "$SVNPATH/trunk" 2>/dev/null | grep '^?' | cut -c9- | while IFS= read -r new_file; do
+svn status "$SVNPATH/trunk" 2>/dev/null | { grep '^?' || true; } | cut -c9- | while IFS= read -r new_file; do
   [[ -n "$new_file" ]] && svn add "$new_file" 2>/dev/null || true
 done
 
@@ -274,12 +281,12 @@ if [[ -d "$SVNPATH/trunk/assets-wp-repo" ]]; then
 
   # Handle SVN state for assets directory
   # Add new files
-  svn status "$SVNPATH/assets" 2>/dev/null | grep '^?' | cut -c9- | while IFS= read -r new_file; do
+  svn status "$SVNPATH/assets" 2>/dev/null | { grep '^?' || true; } | cut -c9- | while IFS= read -r new_file; do
     [[ -n "$new_file" ]] && svn add "$new_file" 2>/dev/null || true
   done
 
   # Remove deleted files
-  svn status "$SVNPATH/assets" 2>/dev/null | grep '^!' | cut -c9- | while IFS= read -r missing_file; do
+  svn status "$SVNPATH/assets" 2>/dev/null | { grep '^!' || true; } | cut -c9- | while IFS= read -r missing_file; do
     [[ -n "$missing_file" ]] && svn delete --force "$missing_file" 2>/dev/null || true
   done
 
