@@ -44,7 +44,7 @@ The script will prompt you for:
 ## Configuration
 
 - **Allowed branches**: `main`, `master` (modify `ALLOWED_BRANCHES` in script)
-- **Assets directory**: Place WordPress.org assets in `assets-wp-repo/` directory
+- **Assets directory**: Place WordPress.org assets in `assets-wp-repo/` directory (banners, icons, screenshots)
 
 ## Notes
 
