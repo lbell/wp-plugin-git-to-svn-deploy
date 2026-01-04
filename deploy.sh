@@ -110,7 +110,7 @@ READMESTABLE=$(
 )
 
 PLUGINVERSION=$(
-  grep -i "^[[:space:]]*\*[[:space:]]*Version:" "$MAINFILE" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' | sed 's/[[:space:]]*$//' || true
+  grep -i "^[[:space:]]*\*\?[[:space:]]*Version:" "$MAINFILE" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' | sed 's/[[:space:]]*$//' || true
 )
 
 # Verify versions were found
