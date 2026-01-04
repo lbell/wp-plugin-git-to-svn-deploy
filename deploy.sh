@@ -5,7 +5,7 @@ IFS=$'\n\t'
 # ============================================================================
 # WordPress Plugin Release Deployer (Git to SVN)
 # ============================================================================
-# Version: 0.2.0
+# Version: 0.2.1
 # This script automates the process of releasing a WordPress plugin to the
 # official WordPress plugin repository (wordpress.org/plugins).
 # ============================================================================
@@ -193,12 +193,15 @@ mkdir -p "$SVNPATH/trunk"
 # Run from git root to ensure relative paths are correct
 (cd "$GITROOT" && git archive "$GITTAG" | tar -x -C "$SVNPATH/trunk")
 
-# Remove .gitignore from SVN trunk (should not be deployed)
-rm -f "$SVNPATH/trunk/.gitignore"
+# Remove .gitignore and .svnignore from SVN trunk (should not be deployed)
+rm -f "$SVNPATH/trunk/.gitignore" "$SVNPATH/trunk/.svnignore"
 
-# Remove files listed in .gitignore from SVN trunk
-# (in case any were committed to git but should not go to SVN)
-if [[ -f "$GITROOT/.gitignore" ]]; then
+# Remove files listed in both .gitignore and .svnignore from SVN trunk
+# .gitignore: General exclusions (e.g., node_modules, .DS_Store)
+# .svnignore: SVN-specific exclusions (e.g., src/, build/, deploy.sh)
+for ignore_file in "$GITROOT/.gitignore" "$GITROOT/.svnignore"; do
+  [[ ! -f "$ignore_file" ]] && continue
+  
   while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     # Skip empty lines and comments
     [[ -z "$pattern" || "$pattern" =~ ^# ]] && continue
@@ -213,8 +216,8 @@ if [[ -f "$GITROOT/.gitignore" ]]; then
     pattern="${pattern#/}"
     # Find matching files and remove them
     find "$SVNPATH/trunk" -name "$pattern" -exec rm -rf {} + 2>/dev/null || true
-  done < "$GITROOT/.gitignore"
-fi
+  done < "$ignore_file"
+done
 
 # Configure SVN to ignore development files that shouldn't be in the repo
 svn propset svn:ignore \

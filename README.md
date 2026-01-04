@@ -1,6 +1,6 @@
 # WordPress Plugin Git to SVN Deployer
 
-Version: 0.2.0
+Version: 0.2.1
 
 A robust bash script that automates deploying WordPress plugin releases from a Git repository to the official WordPress.org plugin SVN repository.
 
@@ -45,9 +45,28 @@ The script will prompt you for:
 
 - **Allowed branches**: `main`, `master` (modify `ALLOWED_BRANCHES` in script)
 - **Assets directory**: Place WordPress.org assets in `assets-wp-repo/` directory (banners, icons, screenshots)
+- **File exclusions**: Create a `.svnignore` file to exclude files from SVN deployment
+
+### File Exclusion Strategy
+
+The script reads from **both** `.gitignore` and `.svnignore` when deploying to SVN:
+
+- **`.gitignore`**: General exclusions that shouldn't be in any repo (e.g., `node_modules/`, `.DS_Store`)
+- **`.svnignore`**: SVN-specific exclusions for files needed in Git but not in wordpress.org distribution (e.g., `src/`, `build/`, `deploy.sh`)
+
+**Example `.svnignore`:**
+
+```
+src/
+build/
+deploy.sh
+README.md
+```
+
+This allows you to keep development files in Git while excluding them from WordPress.org SVN distribution.
 
 ## Notes
 
-- The script automatically ignores `.git`, `.gitignore`, `deploy.sh`, and `README.md` from SVN
+- The script automatically ignores `.git`, `.gitignore`, `.svnignore`, `deploy.sh`, and `README.md` from SVN
 - Requires a clean working tree (no uncommitted changes)
 - Versions must match exactly between `readme.txt` and main plugin file
