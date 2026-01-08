@@ -1,6 +1,6 @@
 # WordPress Plugin Git to SVN Deployer
 
-Version: 0.2.1
+Version: 0.2.2
 
 A robust bash script that automates deploying WordPress plugin releases from a Git repository to the official WordPress.org plugin SVN repository.
 
@@ -70,3 +70,13 @@ This allows you to keep development files in Git while excluding them from WordP
 - The script automatically ignores `.git`, `.gitignore`, `.svnignore`, `deploy.sh`, and `README.md` from SVN
 - Requires a clean working tree (no uncommitted changes)
 - Versions must match exactly between `readme.txt` and main plugin file
+
+## Changelog
+### 0.2.2 
+- Improved SVN file exclusion strategy
+
+### 0.2.1 
+ - Fixed asset handling and improved error messages
+
+### 0.2.0
+- Initial release with core deployment features  

@@ -5,7 +5,7 @@ IFS=$'\n\t'
 # ============================================================================
 # WordPress Plugin Release Deployer (Git to SVN)
 # ============================================================================
-# Version: 0.2.1
+# Version: 0.2.2
 # This script automates the process of releasing a WordPress plugin to the
 # official WordPress plugin repository (wordpress.org/plugins).
 # ============================================================================
@@ -209,13 +209,29 @@ for ignore_file in "$GITROOT/.gitignore" "$GITROOT/.svnignore"; do
     pattern="${pattern#"${pattern%%[![:space:]]*}"}"
     pattern="${pattern%"${pattern##*[![:space:]]}"}"
     [[ -z "$pattern" ]] && continue
-    # Find and remove matching files/directories in trunk
-    # Use find with -name for simple patterns, handle negation patterns
-    [[ "$pattern" =~ ^! ]] && continue  # Skip negation patterns
+    # Skip negation patterns (gitignore syntax)
+    [[ "$pattern" =~ ^! ]] && continue
+    
     # Remove leading slash if present (gitignore root patterns)
     pattern="${pattern#/}"
-    # Find matching files and remove them
-    find "$SVNPATH/trunk" -name "$pattern" -exec rm -rf {} + 2>/dev/null || true
+    
+    # Handle trailing slashes (directory patterns)
+    # Convert patterns like "src/" to match directories properly
+    if [[ "$pattern" == */ ]]; then
+      # Directory pattern: use -type d and -path for directory matching
+      dir_pattern="${pattern%/}"  # Remove trailing slash
+      find "$SVNPATH/trunk" -type d -path "*/$dir_pattern" -o -path "$SVNPATH/trunk/$dir_pattern" | \
+        while IFS= read -r dir; do
+          [[ -n "$dir" ]] && rm -rf "$dir" 2>/dev/null || true
+        done
+    else
+      # File or mixed pattern: use -path to match full paths, not just basenames
+      # This handles patterns like "package.json" anywhere in the tree
+      find "$SVNPATH/trunk" -path "*/$pattern" -o -path "$SVNPATH/trunk/$pattern" | \
+        while IFS= read -r item; do
+          [[ -n "$item" ]] && rm -rf "$item" 2>/dev/null || true
+        done
+    fi
   done < "$ignore_file"
 done
 
