@@ -145,19 +145,51 @@ fi
 GITTAG="v$READMESTABLE"
 SVNTAG="$READMESTABLE"
 
-# Prevent duplicate releases - ensure git tag doesn't already exist
+# Check if git tag already exists (e.g., from a previously aborted deploy)
+TAG_EXISTS=false
 if git rev-parse "$GITTAG" >/dev/null 2>&1; then
+  TAG_EXISTS=true
+  echo ""
   echo "Git tag $GITTAG already exists."
-  exit 1
+  echo "This may be from a previously aborted deploy."
+  echo ""
+  echo "Options:"
+  echo "  [r] Reuse existing tag (continue deploy with current tag)"
+  echo "  [d] Delete and recreate tag (new commit message)"
+  echo "  [a] Abort"
+  echo ""
+  read -rp "Choose [r/d/a]: " TAG_ACTION
+  case "$TAG_ACTION" in
+    r|R)
+      echo "Reusing existing tag $GITTAG."
+      COMMITMSG=$(git tag -l --format='%(contents)' "$GITTAG" | head -1)
+      echo "Commit message from existing tag: $COMMITMSG"
+      ;;
+    d|D)
+      read -rp "Release commit message: " COMMITMSG
+      # Delete local and remote tag (remote may not exist if previous push failed)
+      git tag -d "$GITTAG"
+      git push origin ":refs/tags/$GITTAG" 2>/dev/null || true
+      TAG_EXISTS=false
+      ;;
+    *)
+      echo "Aborting."
+      exit 1
+      ;;
+  esac
+else
+  read -rp "Release commit message: " COMMITMSG
 fi
-
-read -rp "Release commit message: " COMMITMSG
 
 ### GIT OPERATIONS ###
 # Tag the release in git and push to remote origin
 
-git tag -a "$GITTAG" -m "$COMMITMSG"
-git push origin "$CURRENT_BRANCH" "$GITTAG"
+if [[ "$TAG_EXISTS" != true ]]; then
+  git tag -a "$GITTAG" -m "$COMMITMSG"
+fi
+# Push branch and tag (--force for tag in case remote already has it from a partial push)
+git push origin "$CURRENT_BRANCH"
+git push origin "$GITTAG" --force
 
 ### SVN OPERATIONS ###
 # Check out the WordPress plugin SVN repository
