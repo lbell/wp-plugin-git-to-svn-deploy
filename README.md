@@ -26,13 +26,14 @@ A robust bash script that automates deploying WordPress plugin releases from a G
 ./deploy.sh
 ```
 
-The script will prompt you for:
+The script will prompt you for the following information if it can not automatically infer them:
 
 - Plugin slug
-- WordPress.org username
+- WordPress SVN credentials
 - Release commit message
+- Git credentials (if not already configured*)
 
-For GitHub pushes, the script uses your existing Git credentials (for example from a credential helper, SSH config, or GitHub CLI login). If you prefer, you can also provide GitHub credentials via environment variables such as `GITHUB_USERNAME` and `GITHUB_TOKEN`.
+*For GitHub pushes, the script uses your existing Git credentials (for example from a credential helper, SSH config, or GitHub CLI login). If you prefer, you can also provide GitHub credentials via environment variables such as `GITHUB_USERNAME` and `GITHUB_TOKEN`.
 
 ## Workflow
 

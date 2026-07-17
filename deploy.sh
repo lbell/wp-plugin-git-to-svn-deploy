@@ -191,7 +191,7 @@ done
 
 if [[ "$SVN_AUTH_OK" != true ]]; then
   echo "SVN authentication failed."
-  echo "WordPress.org now requires a dedicated SVN username/password pair from your profile:"
+  echo "WordPress.org requires a dedicated SVN username/password pair from your profile:"
   echo "https://profiles.wordpress.org/me/profile/edit/group/3/?screen=svn-password"
   echo "Use that generated SVN password (or an application password if required) and your WordPress.org username."
   exit 1
