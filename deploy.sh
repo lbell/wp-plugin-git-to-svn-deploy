@@ -51,22 +51,102 @@ error_handler() {
 trap 'error_handler $LINENO' ERR
 ### END CONFIG ###
 
+slugify() {
+  local text="$1"
+  text="$(printf '%s' "$text" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+  printf '%s\n' "$text"
+}
+
+detect_plugin_slug() {
+  local gitroot="$1"
+  local candidate=""
+
+  if [[ -f "$gitroot/readme.txt" ]]; then
+    candidate="$(grep -iE 'Plugin Name' "$gitroot/readme.txt" 2>/dev/null | head -1 | sed -E 's/.*Plugin Name[[:space:]]*[:=]?[[:space:]]*//I' | tr -d '\r' | sed 's/[[:space:]]*$//' || true)"
+    if [[ -n "$candidate" ]]; then
+      candidate="$(slugify "$candidate")"
+      if [[ -n "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  fi
+
+  local php_file
+  while IFS= read -r php_file; do
+    if grep -qiE '^[[:space:]]*\*?[[:space:]]*Plugin Name:' "$php_file"; then
+      candidate="$(basename "$php_file")"
+      candidate="${candidate%.php}"
+      if [[ -n "$candidate" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done < <(find "$gitroot" -maxdepth 1 -type f -name '*.php' | sort)
+
+  local dirname
+  dirname="$(basename "$gitroot")"
+  if [[ -n "$dirname" && -f "$gitroot/$dirname.php" ]]; then
+    printf '%s\n' "$dirname"
+    return 0
+  fi
+
+  return 1
+}
+
+# Find git root from current working directory (where user called script from)
+# This works whether script is called directly or via symlink.
+GITROOT="$(git rev-parse --show-toplevel)"
+cd "$GITROOT"
+AUTO_PLUGIN_SLUG="$(detect_plugin_slug "$GITROOT" || true)"
+
 # Collect user input
 echo ""
 echo "=============================================="
 echo "WordPress Plugin Release Deployer (Git to SVN)"
 echo "=============================================="
 echo ""
-read -rp "Plugin Slug (e.g., 'my-awesome-plugin'): " PLUGINSLUG
-read -rp "SVN Username (your wordpress.org username): " SVNUSER
+if [[ -n "$AUTO_PLUGIN_SLUG" ]]; then
+  read -rp "Plugin Slug (e.g., 'my-awesome-plugin') [$AUTO_PLUGIN_SLUG]: " PLUGINSLUG_INPUT
+  PLUGINSLUG="${PLUGINSLUG_INPUT:-$AUTO_PLUGIN_SLUG}"
+else
+  read -rp "Plugin Slug (e.g., 'my-awesome-plugin'): " PLUGINSLUG
+fi
+read -rp "WordPress.org SVN Username: " SVNUSER
+read -rsp "WordPress.org SVN Password/App Password: " SVNPASS
 echo ""
 
-# Find git root from current working directory (where user called script from)
-# This works whether script is called directly or via symlink
-GITROOT="$(git rev-parse --show-toplevel)"
-SVNPATH="$TMPROOT/$PLUGINSLUG"
+# Define the SVN repository URL before any authentication checks use it.
 SVNURL="https://plugins.svn.wordpress.org/$PLUGINSLUG"
 
+# Reuse these flags for all SVN network operations so authentication is explicit
+# and the script does not hang waiting for repeated interactive prompts.
+SVN_AUTH_ARGS=(--non-interactive)
+SVN_USERNAME_CANDIDATES=("$SVNUSER")
+if [[ "$SVNUSER" == *@* ]]; then
+  SVN_USERNAME_CANDIDATES+=("${SVNUSER%@*}")
+fi
+
+SVN_AUTH_OK=false
+for candidate in "${SVN_USERNAME_CANDIDATES[@]}"; do
+  if svn ls "${SVN_AUTH_ARGS[@]}" --username "$candidate" --password "$SVNPASS" "$SVNURL" >/dev/null 2>&1; then
+    SVN_AUTH_OK=true
+    SVNUSER="$candidate"
+    break
+  fi
+done
+
+if [[ "$SVN_AUTH_OK" != true ]]; then
+  echo "SVN authentication failed."
+  echo "WordPress.org now requires a dedicated SVN username/password pair from your profile:"
+  echo "https://profiles.wordpress.org/me/profile/edit/group/3/?screen=svn-password"
+  echo "Use that generated SVN password (or an application password if required) and your WordPress.org username."
+  exit 1
+fi
+
+SVN_AUTH_ARGS=(--non-interactive --username "$SVNUSER" --password "$SVNPASS")
+
+SVNPATH="$TMPROOT/$PLUGINSLUG"
 READMETXT="$GITROOT/readme.txt"
 MAINFILE="$GITROOT/$PLUGINSLUG.php"
 
@@ -194,10 +274,10 @@ git push origin "$GITTAG" --force
 ### SVN OPERATIONS ###
 # Check out the WordPress plugin SVN repository
 
-svn checkout "$SVNURL" "$SVNPATH"
+svn checkout "${SVN_AUTH_ARGS[@]}" "$SVNURL" "$SVNPATH"
 
 # Check if SVN tag already exists (prevent duplicate SVN releases)
-if svn ls "$SVNURL/tags/$SVNTAG" >/dev/null 2>&1; then
+if svn ls "${SVN_AUTH_ARGS[@]}" "$SVNURL/tags/$SVNTAG" >/dev/null 2>&1; then
   echo "SVN tag $SVNTAG already exists at $SVNURL/tags/$SVNTAG"
   echo "Aborting to prevent overwriting existing release."
   exit 1
@@ -356,18 +436,17 @@ read -rp "Proceed with SVN commit? [y/N] " CONFIRM
 
 # Commit everything in the working copy (trunk + assets) in one atomic commit
 # This ensures consistency between trunk and assets
-svn commit "$SVNPATH" \
-  --username "$SVNUSER" \
+svn commit "${SVN_AUTH_ARGS[@]}" "$SVNPATH" \
   -m "$COMMITMSG"
 
 # Create a SVN tag (copy) pointing to the released version
 # WordPress convention: tags are version numbers without "v" prefix (e.g., "1.0.0")
 # This creates an immutable snapshot of trunk at this version
 svn copy \
+  "${SVN_AUTH_ARGS[@]}" \
   "$SVNURL/trunk" \
   "$SVNURL/tags/$SVNTAG" \
-  -m "Tagging version $SVNTAG" \
-  --username "$SVNUSER"
+  -m "Tagging version $SVNTAG"
 
 echo
 echo "=============================================="
