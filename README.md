@@ -32,6 +32,8 @@ The script will prompt you for:
 - WordPress.org username
 - Release commit message
 
+For GitHub pushes, the script uses your existing Git credentials (for example from a credential helper, SSH config, or GitHub CLI login). If you prefer, you can also provide GitHub credentials via environment variables such as `GITHUB_USERNAME` and `GITHUB_TOKEN`.
+
 ## Workflow
 
 1. Validates your git state and version consistency
@@ -72,11 +74,20 @@ This allows you to keep development files in Git while excluding them from WordP
 - Versions must match exactly between `readme.txt` and main plugin file
 
 ## Changelog
-### 0.2.2 
+
+### 0.3.0
+
+- Added support for Github credentials
+- Updated wordpress.org credentialing
+
+### 0.2.2
+
 - Improved SVN file exclusion strategy
 
-### 0.2.1 
- - Fixed asset handling and improved error messages
+### 0.2.1
+
+- Fixed asset handling and improved error messages
 
 ### 0.2.0
-- Initial release with core deployment features  
+
+- Initial release with core deployment features

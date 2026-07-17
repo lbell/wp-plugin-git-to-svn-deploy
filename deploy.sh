@@ -57,6 +57,59 @@ slugify() {
   printf '%s\n' "$text"
 }
 
+build_authenticated_remote_url() {
+  local remote_url="$1"
+  local username="$2"
+  local password="$3"
+
+  if [[ -z "$remote_url" || -z "$username" || -z "$password" ]]; then
+    printf '%s\n' "$remote_url"
+    return 0
+  fi
+
+  if [[ "$remote_url" =~ ^https?:// ]]; then
+    if [[ "$remote_url" == *"@"* ]]; then
+      printf '%s\n' "$remote_url"
+      return 0
+    fi
+
+    local scheme="${remote_url%%://*}"
+    local rest="${remote_url#*://}"
+    local host="${rest%%/*}"
+    local path="${rest#*/}"
+
+    if [[ -z "$path" ]]; then
+      printf '%s\n' "$remote_url"
+      return 0
+    fi
+
+    printf '%s://%s:%s@%s/%s\n' "$scheme" "$username" "$password" "$host" "$path"
+    return 0
+  fi
+
+  printf '%s\n' "$remote_url"
+}
+
+prepare_github_push_auth() {
+  local remote_url
+  remote_url="$(git remote get-url origin 2>/dev/null || true)"
+
+  if [[ "$remote_url" != https://* ]]; then
+    return 0
+  fi
+
+  local username="${GITHUB_USERNAME:-}"
+  local password="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+
+  if [[ -n "$username" && -n "$password" ]]; then
+    GITHUB_PUSH_URL="$(build_authenticated_remote_url "$remote_url" "$username" "$password")"
+    echo "Using GitHub credentials from the environment for the push step."
+  else
+    GITHUB_PUSH_URL=""
+    echo "Using Git's configured credentials for the push step."
+  fi
+}
+
 detect_plugin_slug() {
   local gitroot="$1"
   local candidate=""
@@ -264,12 +317,19 @@ fi
 ### GIT OPERATIONS ###
 # Tag the release in git and push to remote origin
 
+prepare_github_push_auth
+
 if [[ "$TAG_EXISTS" != true ]]; then
   git tag -a "$GITTAG" -m "$COMMITMSG"
 fi
 # Push branch and tag (--force for tag in case remote already has it from a partial push)
-git push origin "$CURRENT_BRANCH"
-git push origin "$GITTAG" --force
+if [[ -n "${GITHUB_PUSH_URL:-}" ]]; then
+  git push "$GITHUB_PUSH_URL" "$CURRENT_BRANCH"
+  git push "$GITHUB_PUSH_URL" "$GITTAG" --force
+else
+  git push origin "$CURRENT_BRANCH"
+  git push origin "$GITTAG" --force
+fi
 
 ### SVN OPERATIONS ###
 # Check out the WordPress plugin SVN repository
